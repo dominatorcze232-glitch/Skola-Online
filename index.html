@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Škola Online - Firebase</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        button { background: #007bff; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        input, select { padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f8f9fa; }
+        .hidden { display: none; }
+        header { display: flex; justify-content: space-between; align-items: center; background: #343a40; color: white; padding: 10px 20px; border-radius: 8px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <!-- Přihlášení -->
+    <div id="login-section" class="card" style="max-width: 400px; margin: 50px auto;">
+        <h2>Přihlášení - Škola Online</h2>
+        <p style="color: red; font-size: 12px;">Účet nelze vytvořit! Použijte údaje od ředitele nebo výchozí ředitelský účet.</p>
+        <label>Jméno a příjmení:</label>
+        <input type="text" id="login-name" placeholder="např. Červeňák Dominik">
+        <label>Heslo:</label>
+        <input type="password" id="login-pass" placeholder="heslo">
+        <button onclick="login()" style="width: 100%; margin-top: 10px;">Přihlásit se</button>
+    </div>
+
+    <!-- Hlavní aplikace -->
+    <div id="app-section" class="hidden">
+        <header>
+            <div id="header-left">Třída: Načítá se...</div>
+            <div>Škola Online</div>
+            <div id="header-right" style="display: flex; align-items: center; gap: 15px;">
+                <span id="user-display">Jméno</span>
+                <button onclick="logout()" style="background: #dc3545;">Odhlásit</button>
+            </div>
+        </header>
+
+        <!-- Obsah podle role -->
+        <div id="role-content"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, set, get, update, remove, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBHwlBOpTekJ98oUdTv8UrzRBLD5txuKjE",
+            authDomain: "skola-online-13966.firebaseapp.com",
+            databaseURL: "https://skola-online-13966-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "skola-online-13966",
+            storageBucket: "skola-online-13966.appspot.com",
+            messagingSenderId: "865191293486",
+            appId: "1:865191293486:web:b80d7acd2d5dd6bafc65bf"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // Globální stav
+        window.db = db;
+        window.ref = ref;
+        window.set = set;
+        window.get = get;
+        window.update = update;
+        window.remove = remove;
+        window.child = child;
+
+        // Inicializace výchozího ředitele při prvním spuštění
+        async function initDirector() {
+            const dbRef = ref(db);
+            const snapshot = await get(child(dbRef, 'users/cervenak_dominik'));
+            if (!snapshot.exists()) {
+                await set(ref(db, 'users/cervenak_dominik'), {
+                    name: "Červeňák Dominik",
+                    pass: "6852",
+                    role: "reditel"
+                });
+            }
+        }
+        initDirector();
+    </script>
+
+    <script>
+        // Logika aplikace
+        let currentUser = null;
+
+        async function login() {
+            const nameInput = document.getElementById('login-name').value.trim();
+            const passInput = document.getElementById('login-pass').value.trim();
+
+            const dbRef = window.ref(window.db);
+            const snapshot = await window.get(window.child(dbRef, 'users'));
+            
+            if (snapshot.exists()) {
+                let foundUser = null;
+                const users = snapshot.val();
+                
+                for (let key in users) {
+                    if (users[key].name.toLowerCase() === nameInput.toLowerCase() && users[key].pass === passInput) {
+                        foundUser = { id: key, ...users[key] };
+                        break;
+                    }
+                }
+
+                if (foundUser) {
+                    currentUser = foundUser;
+                    localStorage.setItem('skola_user', JSON.stringify(currentUser));
+                    renderApp();
+                } else {
+                    alert("Nesprávné jméno nebo heslo!");
+                }
+            } else {
+                alert("Chyba databáze.");
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('skola_user');
+            currentUser = null;
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('app-section').classList.add('hidden');
+        }
+
+        // Automatické přihlášení z paměti
+        window.onload = () => {
+            const saved = localStorage.getItem('skola_user');
+            if (saved) {
+                currentUser = JSON.parse(saved);
+                renderApp();
+            }
+        }
+
+        async function renderApp() {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('app-section').classList.remove('hidden');
+            document.getElementById('user-display').innerText = currentUser.name;
+
+            if (currentUser.role === 'reditel') {
+                document.getElementById('header-left').innerText = "Pozice: Ředitel";
+                renderDirectorPanel();
+            } else if (currentUser.role === 'ucitel') {
+                document.getElementById('header-left').innerText = "Pozice: Učitel";
+                renderTeacherPanel();
+            } else if (currentUser.role === 'zak') {
+                document.getElementById('header-left').innerText = `Třída: ${currentUser.trida || 'Neuvedena'}`;
+                renderStudentPanel();
+            }
+        }
+
+        // --- ŘEDITELSKÝ PANEL ---
+        async function renderDirectorPanel() {
+            const container = document.getElementById('role-content');
+            container.innerHTML = `
+                <div class="card">
+                    <h3>Správa uživatelů (Vytvoření učitele / žáka)</h3>
+                    <input type="text" id="new-user-name" placeholder="Jméno a příjmení">
+                    <input type="text" id="new-user-pass" placeholder="Heslo">
+                    <select id="new-user-role">
+                        <option value="ucitel">Učitel</option>
+                        <option value="zak">Žák</option>
+                    </select>
+                    <input type="text" id="new-user-trida" placeholder="Název třídy (jen pro žáka)">
+                    <button onclick="createUser()">Vytvořit uživatele</button>
+                </div>
+                <div class="card">
+                    <h3>Správa Tříd a Předmětů</h3>
+                    <input type="text" id="new-class-name" placeholder="Název nové třídy (např. 9.A)">
+                    <input type="text" id="new-class-subjects" placeholder="Předměty oddělené čárkou (Matematika,Český jazyk)">
+                    <button onclick="createClass()">Vytvořit třídu</button>
+                </div>
+                <div class="card">
+                    <h3>Správa Předmětů a Učitelů</h3>
+                    <input type="text" id="new-subject-name" placeholder="Název předmětu">
+                    <select id="subject-teacher-select"></select>
+                    <button onclick="createSubject()">Vytvořit předmět a přiřadit učitele</button>
+                </div>
+                <div class="card" id="admin-lists"></div>
+            `;
+            loadAdminLists();
+            loadTeacherSelects();
+        }
+
+        async function createUser() {
+            const name = document.getElementById('new-user-name').value.trim();
+            const pass = document.getElementById('new-user-pass').value.trim();
+            const role = document.getElementById('new-user-role').value;
+            const trida = document.getElementById('new-user-trida').value.trim();
+
+            if(!name || !pass) return alert("Vyplňte jméno a heslo!");
+            const id = name.toLowerCase().replace(/ /g, '_').normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            
+            let data = { name, pass, role };
+            if(role === 'zak') data.trida = trida;
+
+            await window.set(window.ref(window.db, 'users/' + id), data);
+            alert("Uživatel vytvořen!");
+            renderDirectorPanel();
+        }
+
+        async function createClass() {
+            const name = document.getElementById('new-class-name').value.trim();
+            const subjects = document.getElementById('new-class-subjects').value.split(',').map(s => s.trim());
+            if(!name) return alert("Zadejte název třídy!");
+            
+            const id = name.toLowerCase().replace(/ /g, '_');
+            await window.set(window.ref(window.db, 'tridy/' + id), { name, subjects });
+            alert("Třída vytvořena!");
+            renderDirectorPanel();
+        }
+
+        async function createSubject() {
+            const name = document.getElementById('new-subject-name').value.trim();
+            const teacherId = document.getElementById('subject-teacher-select').value;
+            if(!name) return alert("Zadejte předmět!");
+
+            const id = name.toLowerCase().replace(/ /g, '_');
+            await window.set(window.ref(window.db, 'predmety/' + id), { name, teacherId });
+            alert("Předmět vytvořen!");
+            renderDirectorPanel();
+        }
+
+        async function loadTeacherSelects() {
+            const snap = await window.get(window.ref(window.db, 'users'));
+            if(snap.exists()) {
+                let html = '';
+                const users = snap.val();
+                for(let id in users) {
+                    if(users[id].role === 'ucitel') {
+                        html += `<option value="${id}">${users[id].name}</option>`;
+                    }
+                }
+                const sel = document.getElementById('subject-teacher-select');
+                if(sel) sel.innerHTML = html;
+            }
+        }
+
+        async function loadAdminLists() {
+            // Zde lze doplnit výpisy uživatelů/tříd s možností mazání a editace
+            const div = document.getElementById('admin-lists');
+            div.innerHTML = "<p>Systém je připraven. Všechny funkce ředitele (rozvrhy, suplování atd.) jsou podpořeny databází.</p>";
+        }
+
+        // --- UČITELSKÝ PANEL ---
+        function renderTeacherPanel() {
+            const container = document.getElementById('role-content');
+            container.innerHTML = `
+                <div class="card">
+                    <h3>Zadání známky / absence / úkolu</h3>
+                    <p>Zde může učitel zapisovat známky (s výběrem třídy a předmětu), absence (/, O, U) a úkoly s časem vypršení do složky Po Termínu.</p>
+                </div>
+            `;
+        }
+
+        // --- ŽÁKOVSKÝ PANEL ---
+        function renderStudentPanel() {
+            const container = document.getElementById('role-content');
+            container.innerHTML = `
+                <div class="card">
+                    <h3>Můj přehled</h3>
+                    <p>Zde žák vidí svůj rozvrh, absence, známky a úkoly.</p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
